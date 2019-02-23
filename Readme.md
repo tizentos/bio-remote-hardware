@@ -7,7 +7,7 @@ Repository for Hardware
 1. Documentation: This folder contains tecnical documentations, files, UI mockups for the device
 
 2. Project Code: This code contains code for firmware, drivers and application code for the device
-
+  
 
 
 ## Usage
