@@ -9,7 +9,7 @@ char pass[] = "hellonet123";
 
 int status = WL_IDLE_STATUS;     // the Wifi radio's status
 
-char server[] = "http://18.216.149.144/nova";
+char server[] = "3.134.95.133";
 WiFiEspClient Espclient;
 PubSubClient client(Espclient);
 
@@ -82,6 +82,7 @@ void setup() {
   lcd.print("       DEVICE       ");
   lcd.setCursor(0, 2);
   lcd.print("Powered By:NaijaHack");
+
   WiFi.init(&Serial1);
 
   //checks if module is mounted
@@ -114,7 +115,7 @@ void setup() {
   Serial.println("Connection succesful");
 
   //connect to MQTT server
-  client.setServer( thingsboardServer, 1883 );
+  client.setServer( server, 1883 );
   client.setCallback(on_message);
   delay(3000);
 
@@ -132,7 +133,7 @@ void loop() {
 }
 
 void doOtherStuffs(){
-     lcd.clear();
+  lcd.clear();
   lcd.print(" BIO-REMOTE HEALTH  ");
   lcd.setCursor(0, 1);
   lcd.print(F("       DEVICE       "));
@@ -171,6 +172,9 @@ void doOtherStuffs(){
   startTest();
 }
 
+
+//this function simple tries to reconnect to the MQTT server
+//topics are subscribe to 
 void reconnect() {
   // Loop until  reconnected
   while (!client.connected()) {
@@ -187,18 +191,10 @@ void reconnect() {
     Serial.print("Connecting to Bioremote MQTT server ...");
 
 
-    //Note before connecting with username and password, the device will have to do a one-time registration
-    //After registration, then we can re-connect using the username and password
-    //
-    //check the PubSub documentation for the proper constructor for connect()
-    //check the one with the (username,password)     parameters
     if ( client.connect(" Device", HASH, NULL) ) {
       Serial.println( "Sucessful connection with MQTT server" );
-      // Subscribing to receive pub message 
       //Subscribe to the required topics and the topics meant for callback
-      client.subscribe("v1/devices/xx");
-      // For pusblishing
-      client.publish("v1/devices/xx", (value to send));
+      subscribeToTopics();
     } else {
       Serial.print( "[FAILED] [ rc = " );
       Serial.print( client.state() );
@@ -210,67 +206,42 @@ void reconnect() {
 }
 
 // The callback for when a PUBLISH message is received from the server.
+//response is displayed on LCD if necessary
+//or response is saved in EEPROM e.g device_id or comment or notification
 void on_message(const char* topic, byte* payload, unsigned int length) {
-
   Serial.println("Response received");
+
+  //it ashould be replaced with the expected number of array element for vita data
+  int expectedNumberofElement = 2;
+
 
   char json[length + 1];
   strncpy (json, (char*)payload, length);
   json[length] = '\0';
 
+  String localTopic = String(topic);
+  String decodedTopic = localTopic.substring(0,6); 
+
   Serial.print("Topic: ");
+  Serial.println(topic);
+  Serial.print(" Decoded Topic: ");
   Serial.println(topic);
   Serial.print("Message: ");
   Serial.println(json);
 
-  // Decode JSON request
-  //IT CAN ONLY WORK FOR VERSION 5.xx of ArduinoJson Library
-  //If you use a newer version, use the DynamicJSONBuffer(I think), or check the documentation for newer code
-  StaticJsonBuffer<200> jsonBuffer;
-  JsonObject& data = jsonBuffer.parseObject((char*)json);
-
-  if (!data.success())
+  switch (decodedTopic)
   {
-    Serial.println("parseObject() failed");
-    return;
+    case "/data/":
+      //extract payload as JSON array
+      displayVitaData(json)
+      break;
+    default:
+      //any other case is normal JSON object
+      respondToMQTT(json)
+      break;
   }
 
-  // Check request method
-  //Check the received JSON object for the fields contained in it
-  String attributeName = String((const char*)data["json-attribute"]);
-
-  if (methodName.equals("expected-response-topic")) {
-    // Reply if you need to respond back to the same topic
-    String responseTopic = String(topic);
-    // responseTopic.replace("request", "response");//[not required]
-    client.publish(responseTopic.c_str(), getResponseMessage.c_str());
-  } else if (methodName.equals("another-response-topic")) {
-
-
-    displayOnHW(data["params"]["pin"], data["params"]["enabled"]);  //that's another way to extract values from the JSON
-
-    String responseTopic = String(topic);
-    // responseTopic.replace("request", "response");[not required]
-    client.publish(responseTopic.c_str(), getAnotherResponseMessage(str,str).c_str());
-    client.publish("v1/devices/xx-response", getAnotherResponseMessage(str,str).c_str());
-  }
 }
-
-String getResponseMessage(){
-    //process any information you want to send
-    //and send as String
-}
-
-String getAnotherResponseMessage(String str,String anotherStr){
-    //do another procesing for the second  topic expected
-
-}
-
-String displayOnHW(String str, int value){
-    //this can be used to trigger something from the callback function
-}
-
-
 
 
 
@@ -582,6 +553,8 @@ void checkFault() {
 }
 
 /*********************End of Body Temperature function*****************/
+
+
 void checkRespRate() {
   lcd.print("Respiratory Rate");
 }
@@ -591,12 +564,187 @@ void checkBloodPres() {
 void saveToSD() {
   lcd.print("Saving data to SD");
 }
+
+
+
+/**************************MQTT Utils******************************************/
+
 void transferDataOnline() {
   lcd.print("Sending Online...");
 
+  //send vita
+  sendVita();
+}
 
-  info_data[6]
-  // 0: patient id, 1: heartbeat data,2: body temp 3: resp rate 4 blood pressur
-  //
+void subscribeToTopics(){
+
+  //subcribes to avaiable topics
+
+  client.subscribe("/device/error");    ///device/error/{hash}
+  client.subscribe("/device/register");   ///device/register/{hash}
+  client.subscribe("/data/vita");     ///data/vita/{patient_id}
+  client.subscribe("/device/comment");    //device/comment/{device_id}
+  client.subscribe("/device/notification");    //device/notification/{device_id}
+  client.subscribe("/device/vita-received")   ///device/vita-received/
+
+  // Security protocol can follow
+
 
 }
+
+
+
+//this function sends patient vita to the website
+//
+void sendVita(){
+
+  String payload; 
+
+  const size_t capacity = JSON_OBJECT_SIZE(2) + JSON_OBJECT_SIZE(4);
+  DynamicJsonBuffer jsonBuffer(capacity);
+  JsonObject& root = jsonBuffer.createObject();
+
+  JsonObject& data = root.createNestedObject("data");
+  data["resp_rate"] = info_data[3];
+  data["pulse_rate"] = info_data[2];
+  data["temperature"] = info_data[1];
+  data["blood_pressure"] = info_data[4];
+  root["hash"] = "12345";   //still thinking about a proper format
+
+
+ //Just print to debug
+  root.printTo(payload);
+  root.printTo(Serial);
+
+  //we still need device id, this one for testing purpose
+  client.publish("/patient/vita/335f017e-8161-4e6a-b33e-6a627c8e36ef", payload.c_str());  ///patient/vita/{device_id}
+}
+
+
+
+//function to register device
+// this function should be used the first time
+void registerDevice(){
+
+  String payload;
+
+  const size_t capacity = JSON_OBJECT_SIZE(2);
+  DynamicJsonBuffer jsonBuffer(capacity);
+
+  JsonObject& root = jsonBuffer.createObject();
+
+
+  //hospital id and admin are for testing purpose, we need a way to get it automatically
+  root["hospital_id"] = "1";
+  root["admin_id"] = "2";
+
+
+  root.printTo(Serial);  // for debug purpose
+  root.printTo(payload);
+
+
+  ///device/register/{hash}  (how do we get hash when we haven't even registered?)
+  client.publish("/device/register", payload.c_str()); 
+
+}
+
+
+//this functioin tries to decode any server response aside from vitas
+//it extracts a particular string from the JsonDocument and responds accordingly 
+void respondToMQTT(String json){
+  // StaticJsonBuffer<200> jsonBuffer;
+  const size_t capacity = JSON_OBJECT_SIZE(2) + 100;
+  DynamicJsonBuffer jsonBuffer(capacity);
+  JsonObject& data = jsonBuffer.parseObject((char*)json);
+
+  if (!data.success())
+  {
+    Serial.println("parseObject() failed");
+    return;
+  }
+
+  if (data["patient_id"] != nullptr){
+    if(data["comment"] != nullptr){
+      //respond to topic /device/comment/{device_id}
+      //respond to comment received
+      String patient_id = String(data["patient_id"]);
+      String comment = String(data["comment"]);
+      showComment(patient_id,comment);
+      return;
+    }
+
+
+    //respond to the topic /device/vita-received/{hash}
+    //show "vita has been sent succesfully"
+    return;
+
+  }
+  else if(data["message"] != nullptr){
+    //respond topic /device/notification/{device_id}
+    //display notification
+    String message = String(data["message"]);
+    showNotication(message);
+
+  }else if (data["device_id"] != nullptr){
+
+    //respond to topic /device/register/{hash}
+    //save device id into the EEPROM
+    saveToSD()
+
+  }
+}
+
+
+void displayVitaData(String json){
+  // respond to topic /data/vita/{patient_id}
+
+  const size_t capacity = JSON_ARRAY_SIZE(expectedNumberofElement) + JSON_OBJECT_SIZE(5) + JSON_OBJECT_SIZE(8) + 390;
+  DynamicJsonBuffer jsonBuffer(capacity);
+
+  JsonArray& root = jsonBuffer.parseArray(json);
+  
+  if (!root.success())
+  {
+    Serial.println("parseObject() failed");
+    return;
+  }
+
+  JsonObject& root_0 = root[0];
+  char* root_0_id = root_0["id"]; // "f5efc201-9c6c-4934-a9ec-4063f0474237"
+  char* root_0_patient_id = root_0["patient_id"]; // "5997286f-b603-44b7-88d4-fd82118e150b"
+  char* root_0_device_id = root_0["device_id"]; // "9c842b3c-6239-4c7f-b4ec-424bc5e498d8"
+
+  JsonObject& root_0_data = root_0["data"];
+  int root_0_data_resp_rate = root_0_data["resp_rate"]; // 991
+  int root_0_data_pulse_rate = root_0_data["pulse_rate"]; // 136
+  char* root_0_data_location_id = root_0_data["location_id"]; // "14izeOzo"
+  int root_0_data_temperature = root_0_data["temperature"]; // 30
+  int root_0_data_blood_pressure = root_0_data["blood_pressure"]; // 835
+
+  char* root_0_comment = root_0["comment"]; // "Loba atab"
+  char* root_0_doctor_id = root_0["doctor_id"]; // "2dc89f7e-475a-4a1c-94fd-b5ceb52366bf"
+  char* root_0_created_at = root_0["created_at"]; // "2019-10-25 12:10:12"
+  char* root_0_updated_at = root_0["updated_at"]; // "2019-10-25 12:19:04"
+
+
+
+  //Write a function to display the received vita on screen
+  
+
+}
+
+//Function to Display comment on the screen
+void showComment(String comment){
+
+  //LCD commands to write to screen
+
+}
+
+
+//Function to  Displays notification
+void showNotication(String comment){
+
+    //LCD commands to write to screen
+
+}
+
