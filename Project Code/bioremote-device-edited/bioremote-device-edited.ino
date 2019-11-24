@@ -229,16 +229,13 @@ void on_message(const char* topic, byte* payload, unsigned int length) {
   Serial.print("Message: ");
   Serial.println(json);
 
-  switch (decodedTopic)
-  {
-    case "/data/":
+  if (decodedTopic.equals("/data/")){
       //extract payload as JSON array
-      displayVitaData(json)
-      break;
-    default:
+      displayVitaData(json,expectedNumberofElement);
+  }
+  else {
       //any other case is normal JSON object
-      respondToMQTT(json)
-      break;
+      respondToMQTT(json);
   }
 
 }
@@ -585,7 +582,7 @@ void subscribeToTopics(){
   client.subscribe("/data/vita");     ///data/vita/{patient_id}
   client.subscribe("/device/comment");    //device/comment/{device_id}
   client.subscribe("/device/notification");    //device/notification/{device_id}
-  client.subscribe("/device/vita-received")   ///device/vita-received/
+  client.subscribe("/device/vita-received");   ///device/vita-received/
 
   // Security protocol can follow
 
@@ -655,7 +652,7 @@ void respondToMQTT(String json){
   // StaticJsonBuffer<200> jsonBuffer;
   const size_t capacity = JSON_OBJECT_SIZE(2) + 100;
   DynamicJsonBuffer jsonBuffer(capacity);
-  JsonObject& data = jsonBuffer.parseObject((char*)json);
+  JsonObject& data = jsonBuffer.parseObject(String(json));
 
   if (!data.success())
   {
@@ -663,12 +660,12 @@ void respondToMQTT(String json){
     return;
   }
 
-  if (data["patient_id"] != nullptr){
-    if(data["comment"] != nullptr){
+  if (data["patient_id"] != NULL){
+    if(data["comment"] != NULL){
       //respond to topic /device/comment/{device_id}
       //respond to comment received
-      String patient_id = String(data["patient_id"]);
-      String comment = String(data["comment"]);
+      String patient_id = data["patient_id"];
+      String comment = data["comment"];
       showComment(patient_id,comment);
       return;
     }
@@ -679,23 +676,23 @@ void respondToMQTT(String json){
     return;
 
   }
-  else if(data["message"] != nullptr){
+  else if(data["message"] != NULL){
     //respond topic /device/notification/{device_id}
     //display notification
-    String message = String(data["message"]);
+    String message = data["message"];
     showNotication(message);
 
-  }else if (data["device_id"] != nullptr){
+  }else if (data["device_id"] != NULL){
 
     //respond to topic /device/register/{hash}
     //save device id into the EEPROM
-    saveToSD()
+    saveToSD();
 
   }
 }
 
 
-void displayVitaData(String json){
+void displayVitaData(String json, int expectedNumberofElement){
   // respond to topic /data/vita/{patient_id}
 
   const size_t capacity = JSON_ARRAY_SIZE(expectedNumberofElement) + JSON_OBJECT_SIZE(5) + JSON_OBJECT_SIZE(8) + 390;
@@ -734,7 +731,7 @@ void displayVitaData(String json){
 }
 
 //Function to Display comment on the screen
-void showComment(String comment){
+void showComment(String patient_id,String comment){
 
   //LCD commands to write to screen
 
@@ -747,4 +744,3 @@ void showNotication(String comment){
     //LCD commands to write to screen
 
 }
-
